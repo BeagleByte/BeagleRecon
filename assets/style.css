@@ -1,0 +1,21 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background: #0f172a;
+    color: #e2e8f0;
+    margin: 2rem;
+}
+.report {
+    max-width: 1000px;
+    margin: auto;
+    background: #1e293b;
+    padding: 2rem;
+    border-radius: 12px;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+pre {
+    white-space: pre-wrap;
+    font-family: 'Courier New', monospace;
+    background: #0f172a;
+    padding: 1rem;
+    border-radius: 6px;
+}
