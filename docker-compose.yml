@@ -1,0 +1,63 @@
+services:
+  ollama:
+    image: ollama/ollama:latest
+    container_name: beaglerecon-ollama
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
+    restart: unless-stopped
+    # CPU by default. For GPU run:
+    #   docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
+
+  model-puller:
+    image: ollama/ollama:latest
+    container_name: beaglerecon-model-puller
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_HOST: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-granite4:3b}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - 'ollama pull "$$OLLAMA_CHAT_MODEL"'
+    restart: "no"
+
+  vulnerable:
+    image: heywoodlh/vulnerable
+    container_name: beaglerecon-vulnerable
+    ports:
+      - "127.0.0.1:21:21"      # ProFTPD
+      - "127.0.0.1:22:22"      # OpenSSH
+      - "127.0.0.1:80:80"      # Apache
+      - "127.0.0.1:445:445"    # Samba
+      - "127.0.0.1:631:631"    # CUPS
+      - "127.0.0.1:3000:3000"  # chatbot
+      - "127.0.0.1:3500:3500"  # readme_app
+      - "127.0.0.1:6697:6697"  # UnrealIRC
+      - "127.0.0.1:3306:3306"  # MySQL
+      - "127.0.0.1:8181:8181"  # Sinatra
+    restart: unless-stopped
+
+  beaglerecon:
+    build: .
+    image: beaglerecon:latest
+    profiles: ["scan"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    environment:
+      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_CHAT_MODEL: ${OLLAMA_CHAT_MODEL:-granite4:3b}
+      MIN_CVE_YEAR: ${MIN_CVE_YEAR:-2010}
+    volumes:
+      - ./data:/app/data
+      - ./output:/app/output
+
+volumes:
+  ollama_models:
