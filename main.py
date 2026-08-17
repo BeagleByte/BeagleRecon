@@ -1,74 +1,142 @@
-from port_scanner import run_xmas_scan
-from banner_grabbers import *   # import all grabbers
-from other_services import OtherServicesScanner
-from vulnerability_scanners import *  # per-service scanners
-from report_generator import generate_report
+#!/usr/bin/env python3
+import click
 
-def main(target_ip):
-    # Stage 1
-    open_ports = run_xmas_scan(target_ip)   # CSV saved automatically
+from config import Config
+from core.dns_resolver import DnsResolver
+from core.nmap_script_runner import NmapScriptRunner
+from core.pipeline import ReconPipeline
+from core.port_scanner import PortScanner
+from core.report_writer import MarkdownReportWriter
+from core.version_scanner import VersionScanner
+from intel.fts_index import FtsIndex
+from intel.fts_retriever import FtsRetriever
+from intel.intel_service import IntelService
+from intel.ollama_llm import OllamaLlm
+from intel.query_planner import QueryPlanner
+from intel.sources.advisory_source import AdvisoryDatabaseSource
+from intel.sources.exploitdb_source import ExploitDbSource
+from services import create_default_registry
 
-    # Stage 2 – map ports to grabbers
-    # Define known service ports
-    tcp_service_map = {
-        21: FTPGrabber,
-        22: SSHGrabber,
-        23: TelnetGrabber,
-        25: SMTPGrabber,
-        80: HTTPGrabber,
-        443: HTTPSGrabber,
-        110: POP3Grabber,
-        143: IMAPGrabber,
-        135: RPCGrabber,   # MSRPC
-        445: SMBGrabber,
-        3389: RDPGrabber,
-    }
-    udp_service_map = {
-        53: DNSGrabber,
-        161: SNMPGrabber,
-        67: DHCPGrabber,
-    }
+VERSION = "0.2.0"
 
-    banners = {}
-    other_ports = []
+BANNER = r"""
+ .oPYo.                      8           .oPYo.                            
+ 8   `8                      8           8   `8                            
+o8YooP' .oPYo. .oPYo. .oPYo. 8 .oPYo.   o8YooP' .oPYo. .oPYo. .oPYo. odYo. 
+ 8   `b 8oooo8 .oooo8 8    8 8 8oooo8    8   `b 8oooo8 8    ' 8    8 8' `8 
+ 8    8 8.     8    8 8    8 8 8.        8    8 8.     8    . 8    8 8   8 
+ 8oooP' `Yooo' `YooP8 `YooP8 8 `Yooo'    8    8 `Yooo' `YooP' `YooP' 8   8 
+:......::.....::.....::....8 ..:.....::::..:::..:.....::.....::.....:..::..
+::::::::::::::::::::::::ooP'.::::::::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::::::...::::::::::::::::::::::::::::::::::::::::::::::::
+"""
 
-    for ip, port, proto, state in open_ports:
-        port = int(port)
-        if proto == "tcp":
-            grabber_cls = tcp_service_map.get(port)
-            if grabber_cls:
-                grabber = grabber_cls(ip, port)
-                banners[f"{grabber_cls.__name__} on {port}"] = grabber.grab()
-            else:
-                other_ports.append(port)
 
-    # Handle UDP services (they won’t be in open_ports)
-    for port, grabber_cls in udp_service_map.items():
-        grabber = grabber_cls(target_ip, port)
-        banners[f"{grabber_cls.__name__} on {port}"] = grabber.grab()
+class BeagleGroup(click.Group):
+    """Group that treats a bare target as the 'scan' command."""
 
-    # Other services with -sCV
-    other_results = OtherServicesScanner(target_ip, other_ports).scan()
+    def parse_args(self, ctx, args):
+        if args and not args[0].startswith("-") and args[0] not in self.commands:
+            args.insert(0, "scan")
+        return super().parse_args(ctx, args)
 
-    # Stage 3 – Vulnerability scanning
-    vuln_data = {}
-    # For each service where we have a vulnerability scanner
-    for port, grabber_cls in {**tcp_service_map, **udp_service_map}.items():
-        # Map grabber to vuln scanner by name convention
-        scanner_cls = globals().get(f"{grabber_cls.__name__.replace('Grabber','')}VulnScanner")
-        if scanner_cls:
-            scanner = scanner_cls(target_ip, port)
-            vuln_data[grabber_cls.__name__] = scanner.run()
 
-    # Generate reports
-    report_data = {
-        "open_ports": open_ports,
-        "banners": banners,
-        "other_services": other_results,
-        "vulnerabilities": vuln_data,
-    }
-    md_path, html_path = generate_report(report_data, target_ip)
-    print(f"Reports saved: {md_path}, {html_path}")
+def build_sources(config: Config) -> list:
+    return [ExploitDbSource(config), AdvisoryDatabaseSource(config)]
+
+
+def build_intel_service(config: Config) -> IntelService:
+    llm = OllamaLlm(config)
+    planner = QueryPlanner(config, llm)
+    index = FtsIndex(config)
+    return IntelService(config, llm, planner, FtsRetriever(index))
+
+
+def build_pipeline(config: Config) -> ReconPipeline:
+    intel_service = build_intel_service(config) if config.use_intel else None
+    return ReconPipeline(
+        config=config,
+        port_scanner=PortScanner(config),
+        version_scanner=VersionScanner(config),
+        dns_resolver=DnsResolver(),
+        script_runner=NmapScriptRunner(),
+        registry=create_default_registry(timeout=config.banner_timeout),
+        intel_service=intel_service,
+        report_writer=MarkdownReportWriter(config),
+    )
+
+
+@click.group(cls=BeagleGroup, invoke_without_command=True, no_args_is_help=True,
+             context_settings={"help_option_names": ["-h", "--help"]})
+@click.version_option(VERSION, prog_name="BeagleRecon")
+def cli():
+    """BeagleRecon - nmap scan, banner grabbing, CVE intelligence, LLM report."""
+    pass
+
+
+@cli.command()
+@click.argument("target")
+@click.option("--ports", help="nmap port range (default: 0-65535)")
+@click.option("--all-ports", is_flag=True, help="scan all TCP ports (default)")
+@click.option("--udp/--no-udp", default=True, help="enable/disable the UDP scan")
+@click.option("--skip-scripts", is_flag=True, help="skip the nmap service scripts")
+@click.option("--no-intel", is_flag=True, help="skip the CVE search + LLM analysis")
+@click.option("--model", help="ollama chat model")
+@click.option("--data-dir", type=click.Path(file_okay=False), help="raw data directory")
+@click.option("--output-dir", type=click.Path(file_okay=False), help="report output directory")
+def scan(target, ports, all_ports, udp, skip_scripts, no_intel, model, data_dir, output_dir):
+    """Scan TARGET and write a vulnerability report to the output directory."""
+    config = Config(target=target)
+    if ports:
+        config.ports = ports
+    if all_ports:
+        config.ports = "1-65535"
+    config.scan_udp = udp
+    if skip_scripts:
+        config.run_nmap_scripts = False
+    if no_intel:
+        config.use_intel = False
+    if model:
+        config.chat_model = model
+    if data_dir:
+        config.data_dir = data_dir
+    if output_dir:
+        config.output_dir = output_dir
+
+    click.secho(BANNER, fg="cyan", bold=True)
+    click.secho(f"Scanning {target} ...", fg="cyan")
+    try:
+        report_path = build_pipeline(config).run(target)
+    except Exception as exc:
+        raise click.ClickException(f"scan failed: {exc}") from exc
+    click.secho(f"Report written to {report_path}", fg="green", bold=True)
+
+
+@cli.command()
+@click.option("--update-data", is_flag=True, help="re-download CSV and git pull advisories first")
+@click.option("--reset", is_flag=True, help="wipe the index first (full rebuild, ~30s)")
+@click.option("--limit", type=int, default=0, help="max chunks per source (testing)")
+@click.option("--data-dir", type=click.Path(file_okay=False), help="raw data directory")
+def ingest(update_data, reset, limit, data_dir):
+    """Build or update the FTS search index."""
+    config = Config()
+    if limit:
+        config.source_limit = limit
+    if data_dir:
+        config.data_dir = data_dir
+
+    index = FtsIndex(config)
+    if reset and index.exists():
+        click.secho(f"Index exists with {index.count():,} rows.", fg="yellow")
+        click.confirm("Wipe the index and rebuild from scratch?", abort=True)
+
+    click.secho("Building search index ...", fg="cyan")
+    try:
+        index.build(build_sources(config), update=update_data, reset=reset, limit=limit)
+    except Exception as exc:
+        raise click.ClickException(f"ingest failed: {exc}") from exc
+    click.secho(f"Index ready: {index.count():,} rows", fg="green", bold=True)
+
 
 if __name__ == "__main__":
-    main("192.168.1.10")
+    cli()
