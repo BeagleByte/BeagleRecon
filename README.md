@@ -1,6 +1,23 @@
 # BeagleRecon
 
-Reconnaissance pipeline with a CVE intelligence backend:
+
+I want to develop a tool that automates banner grabbing and software version collection during the initial reconnaissance phase. The tool is mainly intended for CTFs, to help identify easy “low-hanging fruit” vulnerabilities.
+
+The CVEs and exploits will come from:
+
+    https://gitlab.com/exploit-database/exploitdb
+    https://github.com/github/advisory-database
+
+My first idea was to build a RAG system with a vector store to embed and index the data. However, embeddings require too much compute time, and the results weren’t significantly better than simply using full-text search over the JSON and CSV files stored in a SQLite database. I decided to use full-text search instead. Lesson learned: AI isn’t always the right solution—it depends on the data and the purpose.
+
+The work is still under construction:
+### To Do
+
+    Compare the BeagleRecon tool against a known vulnerability scanner: OpenVAS vs. BeagleRecon.
+
+
+
+## Reconnaissance pipeline with a CVE intelligence backend:
 
 ```
 nmap scan (all ports 0-65535, TCP+UDP, open only) -> banner grabbing -> version scan (-sV)
