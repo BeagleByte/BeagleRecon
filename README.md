@@ -123,7 +123,6 @@ python main.py ingest --update-data
 | `chat_model` (`OLLAMA_CHAT_MODEL`) | `granite4:3b` | Ollama chat model (CPU-friendly default) |
 | `ollama_base_url` (`OLLAMA_BASE_URL`) | `http://localhost:11434` | Ollama endpoint |
 | `data_dir` / `output_dir` | `data` / `output` | Storage locations |
-| `top_k` | `20` | Findings per service in the report |
 | `run_nmap_scripts`, `use_intel`, `banner_timeout` | `True/True/5.0` | Pipeline toggles |
 
 ## Docker
@@ -255,7 +254,6 @@ Add your step there and keep single-responsibility methods (one method = one sta
 
 ## Where things are tuned
 
-- Findings per service: `top_k` in `config.py`
 - Version matching strictness: `intel/relevance_filter.py`
 - LLM behaviour: `SYNTHESIS_SYSTEM_PROMPT` in `intel/intel_service.py`,
   `QUERY_SYSTEM_PROMPT` in `intel/query_planner.py`
