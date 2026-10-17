@@ -45,3 +45,19 @@ class Config:
         "ADVISORY_REPO_URL",
         "https://github.com/github/advisory-database",
     ))
+
+    use_agents = False
+    agent_model = "gemma3-4k-tools"
+
+    use_agents: bool = field(default_factory=lambda: _env("USE_AGENTS", "False") == "true")
+    agent_model: str = field(default_factory=lambda: _env("OLLAMA_AG2_MODEL", "gemma3-4k-tools"))
+
+    web_output_dir: Path = field(default_factory=lambda: Path(_env("WEB_OUTPUT_DIR", "AG2/output")))
+    ferox_wordlist: str = field(default_factory=lambda: _env(
+        "FEROX_WORDLIST", "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt"))
+    ffuf_api_wordlist: str = field(default_factory=lambda: _env(
+        "FFUF_API_WORDLIST", "/usr/share/seclists/Discovery/Web-Content/api/api-endpoints.txt"))
+    ffuf_vhost_wordlist: str = field(default_factory=lambda: _env(
+        "FFUF_VHOST_WORDLIST", "/usr/share/seclists/Discovery/DNS/subdomains-top1million-5000.txt"))
+    ferox_threads: int = 50
+    ffuf_threads: int = 40
