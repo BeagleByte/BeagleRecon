@@ -1,7 +1,22 @@
-# BeagleRecon
+```commandline
+r"""
+ .oPYo.                      8           .oPYo.                            
+ 8   `8                      8           8   `8                            
+o8YooP' .oPYo. .oPYo. .oPYo. 8 .oPYo.   o8YooP' .oPYo. .oPYo. .oPYo. odYo. 
+ 8   `b 8oooo8 .oooo8 8    8 8 8oooo8    8   `b 8oooo8 8    ' 8    8 8' `8 
+ 8    8 8.     8    8 8    8 8 8.        8    8 8.     8    . 8    8 8   8 
+ 8oooP' `Yooo' `YooP8 `YooP8 8 `Yooo'    8    8 `Yooo' `YooP' `YooP' 8   8 
+:......::.....::.....::....8 ..:.....::::..:::..:.....::.....::.....:..::..
+::::::::::::::::::::::::ooP'.::::::::::::::::::::::::::::::::::::::::::::::
+::::::::::::::::::::::::...::::::::::::::::::::::::::::::::::::::::::::::::
+"""
 
+```
 
 I want to develop a tool that automates banner grabbing and software version collection during the initial reconnaissance phase. The tool is mainly intended for CTFs, to help identify easy “low-hanging fruit” vulnerabilities.
+During my certification of IBM RAG and Agentic AI, I learned about AG2(former Autogen) and learnt how I can use different agents for some research or collaboration tasks. I extended with DeepSeek V4 Pro my Program with autogen agents.
+There tasks are directory fuzzing, api fuzzing and vhost. All this task in the program is set a basic reconnaissance during a CTF engagement and research: what can I achieve with a 4B model and low hardware?
+BeagleRecon can also help you to find on your own server, even if you have no high end hardware. 
 
 The CVEs and exploits will come from:
 

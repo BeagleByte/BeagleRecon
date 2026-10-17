@@ -137,6 +137,40 @@ def ingest(update_data, reset, limit, data_dir):
         raise click.ClickException(f"ingest failed: {exc}") from exc
     click.secho(f"Index ready: {index.count():,} rows", fg="green", bold=True)
 
+@cli.command()
+@click.argument("domain")
+@click.option("--ip", required=True, help="target IP (from the stage-1 scan)")
+@click.option("--ports", default=None, help="HTTP ports, comma list (default: auto from latest scan report)")
+@click.option("--wordlist", type=click.Path(exists=True), default=None, help="directory wordlist")
+@click.option("--api-wordlist", type=click.Path(exists=True), default=None, help="API wordlist")
+@click.option("--vhost-wordlist", type=click.Path(exists=True), default=None, help="vhost wordlist")
+@click.option("--threads", type=int, default=50, help="ferox/ffuf threads")
+def web(domain, ip, ports, wordlist, api_wordlist, vhost_wordlist, threads):
+    """Stage 2 (manual): run feroxbuster + ffuf agents against DOMAIN.
+
+    Set the domain in /etc/hosts first - CTFs have no DNS server."""
+    from AG2.agents.web_team import WebReconTeam
+
+    config = Config()
+    if ports:
+        port_list = [int(p.strip()) for p in ports.split(",")]
+    else:
+        port_list = WebReconTeam(config).discover_http_ports(ip)
+        if not port_list:
+            raise click.ClickException(
+                "no HTTP ports found in scan reports - pass --ports 80,443"
+            )
+    wordlists = {
+        "dirs": wordlist or config.ferox_wordlist,
+        "api": api_wordlist or config.ffuf_api_wordlist,
+        "vhost": vhost_wordlist or config.ffuf_vhost_wordlist,
+    }
+    click.secho(f"Web recon: {domain} ({ip}) ports {port_list}", fg="cyan")
+    try:
+        report = WebReconTeam(config).run(domain, ip, port_list, wordlists)
+    except Exception as exc:
+        raise click.ClickException(f"web recon failed: {exc}") from exc
+    click.secho(f"Report: {report}", fg="green", bold=True)
 
 if __name__ == "__main__":
     cli()
