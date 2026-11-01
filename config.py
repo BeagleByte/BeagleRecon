@@ -15,12 +15,6 @@ def _env(key, default):
 class Config:
     target: str = ""
 
-    ollama_base_url: str = field(default_factory=lambda: _env("OLLAMA_BASE_URL", "http://localhost:11434"))
-    chat_model: str = field(default_factory=lambda: _env("OLLAMA_CHAT_MODEL", "granite4:3b"))
-    chat_num_ctx: int = 4096
-    chat_num_predict: int = 1024
-    chat_timeout: float = 1200.0
-
     data_dir: Path = field(default_factory=lambda: Path(_env("DATA_DIR", "data")))
     output_dir: Path = field(default_factory=lambda: Path(_env("OUTPUT_DIR", "output")))
 
@@ -46,13 +40,7 @@ class Config:
         "https://github.com/github/advisory-database",
     ))
 
-    use_agents = False
-    agent_model = "gemma3-4k-tools"
-
-    use_agents: bool = field(default_factory=lambda: _env("USE_AGENTS", "False") == "true")
-    agent_model: str = field(default_factory=lambda: _env("OLLAMA_AG2_MODEL", "gemma3-4k-tools"))
-
-    web_output_dir: Path = field(default_factory=lambda: Path(_env("WEB_OUTPUT_DIR", "AG2/output")))
+    web_output_dir: Path = field(default_factory=lambda: Path(_env("WEB_OUTPUT_DIR", "Fuzzing/output")))
     ferox_wordlist: str = field(default_factory=lambda: _env(
         "FEROX_WORDLIST", "/usr/share/seclists/Discovery/Web-Content/raft-medium-directories.txt"))
     ffuf_api_wordlist: str = field(default_factory=lambda: _env(

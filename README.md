@@ -13,17 +13,16 @@ o8YooP' .oPYo. .oPYo. .oPYo. 8 .oPYo.   o8YooP' .oPYo. .oPYo. .oPYo. odYo.
 
 ```
 
-I want to develop a tool that automates banner grabbing and software version collection during the initial reconnaissance phase. The tool is mainly intended for CTFs, to help identify easy “low-hanging fruit” vulnerabilities.
-During my certification of IBM RAG and Agentic AI, I learned about AG2(former Autogen) and learnt how I can use different agents for some research or collaboration tasks. I extended with DeepSeek V4 Pro my Program with autogen agents.
-There tasks are directory fuzzing, api fuzzing and vhost. All this task in the program is set a basic reconnaissance during a CTF engagement and research: what can I achieve with a 4B model and low hardware?
-BeagleRecon can also help you to find on your own server, even if you have no high end hardware. 
+I want to develop a tool that automates banner grabbing and software version collection during the initial reconnaissance phase. The tool is mainly intended for CTFs, to help identify easy "low-hanging fruit" vulnerabilities.
+
+BeagleRecon is fully deterministic: banner grabbing, version detection, CVE lookup and web fuzzing are driven by plain tooling (nmap, feroxbuster, ffuf, SQLite FTS5). No LLM or agent framework is required, so it runs fast even on low-end hardware.
 
 The CVEs and exploits will come from:
 
     https://gitlab.com/exploit-database/exploitdb
     https://github.com/github/advisory-database
 
-My first idea was to build a RAG system with a vector store to embed and index the data. However, embeddings require too much compute time, and the results weren’t significantly better than simply using full-text search over the JSON and CSV files stored in a SQLite database. I decided to use full-text search instead. Lesson learned: AI isn’t always the right solution—it depends on the data and the purpose.
+The data is indexed with SQLite FTS5 full-text search - no embeddings or vector store, which turned out to be slower without better results for this kind of keyword-oriented data.
 
 The work is still under construction:
 ### To Do
@@ -36,15 +35,15 @@ The work is still under construction:
 
 ```
 nmap scan (all ports 0-65535, TCP+UDP, open only) -> banner grabbing -> version scan (-sV)
-        -> SQLite FTS5 keyword search -> Ollama LLM summarizes the findings
+        -> SQLite FTS5 keyword search -> deterministic findings
         -> markdown report
 ```
 
 ## Search backend
 
 SQLite FTS5 keyword index over the CSV/JSON: builds in ~30 seconds, pure CPU,
-no Ollama needed for ingestion. Queries return bm25-ranked hits which are filtered
-by product/version tokens and then summarized into the report by the Ollama LLM.
+no external services needed for ingestion. Queries return bm25-ranked hits which
+are filtered by product/version tokens and then written directly into the report.
 
 ## Data sources
 
@@ -56,7 +55,6 @@ by product/version tokens and then summarized into the report by the Ollama LLM.
 
 ```bash
 pip install -r requirements.txt
-ollama pull granite4:3b    # or any chat model
 ```
 
 ## Usage
@@ -68,16 +66,15 @@ python main.py ingest --update-data
 # 2. Scan a target (by default: full TCP + UDP 0-65535, open ports only)
 python main.py scan 192.168.0.1
 python main.py scan example.com --no-udp --skip-scripts
-python main.py scan 10.0.0.5 --ports 1-10000 --model Gemma3:4B
+python main.py scan 10.0.0.5 --ports 1-10000
 
 # The bare form is equivalent to 'scan': python main.py 192.168.0.1
 ```
 
 Reports are written to `output/YYYY-MM-DD_HH-MM-SS_<ip>_<dns>.md` and contain:
 scanned IP, DNS name, open ports with service/product/version, per-port banners and
-tool output, and the vulnerability analysis (possible CVEs, vendors, severities).
-If Ollama is unreachable the report falls back to an exact, non-LLM listing of the
-findings.
+tool output, and the vulnerability analysis (possible CVEs, vendors, severities),
+sourced deterministically from the FTS index.
 
 Note: a full 0-65535 UDP scan takes a long time (30+ min). Privileges:
 nmap needs root for `-sU` and `-sS`. Without privileges the UDP scan is skipped
@@ -112,6 +109,33 @@ Alternatives: run with `sudo python3 main.py <target>`, or pass `--no-udp`
 |---|---|
 | `scan <target>` (or just `<target>`) | run the recon pipeline |
 | `ingest` | build/update the FTS index |
+| `web <domain>` | stage 2: feroxbuster + ffuf web recon (deterministic) |
+
+## Stage 2 - web recon
+
+Run after the scan, when you know the HTTP ports. CTF flow: add the domain to
+`/etc/hosts` first (CTFs have no DNS server), then start stage 2 manually:
+
+```bash
+python main.py web hackthebox.htb --ip 10.10.11.5            # auto-discovers HTTP ports from your latest scan report
+python main.py web hackthebox.htb --ip 10.10.11.5 --ports 80,443,8081
+```
+
+Per URL it runs: feroxbuster (directories) + ffuf (directories, API endpoints,
+vhosts via `Host:` header). `-fs` soft-404 filtering is auto-calibrated by
+probing a nonexistent path. Ports that do not answer HTTP within 5s are
+skipped. Raw JSON lands in `Fuzzing/output/` next to the markdown report.
+
+`web` options:
+
+| Flag | Purpose |
+|---|---|
+| `--ip` | target IP (required) |
+| `--ports` | HTTP ports, comma list (default: auto from the latest scan report) |
+| `--wordlist` | directory wordlist (default seclists raft-medium-directories) |
+| `--api-wordlist` | API wordlist (default seclists api-endpoints) |
+| `--vhost-wordlist` | vhost wordlist (default seclists subdomains-top1million-5000) |
+| `--threads` | ferox/ffuf threads (default 50) |
 
 `scan` options:
 
@@ -120,8 +144,7 @@ Alternatives: run with `sudo python3 main.py <target>`, or pass `--no-udp`
 | `--ports <range>` | override the TCP port range (default `0-65535`) |
 | `--udp / --no-udp` | enable/disable the UDP scan (default on) |
 | `--skip-scripts` | skip the nmap service scripts |
-| `--no-intel` | skip the CVE search + LLM analysis |
-| `--model <name>` | Ollama chat model (default `granite4:3b`) |
+| `--no-intel` | skip the CVE search |
 
 `ingest` options:
 
@@ -152,31 +175,17 @@ python main.py ingest --update-data
 | `ports` (`PORTS`) | `0-65535` | TCP port range for the scan |
 | `udp_ports` (`UDP_PORTS`) | `0-65535` | UDP port range |
 | `scan_udp` | `True` | Enable the UDP scan |
-| `chat_model` (`OLLAMA_CHAT_MODEL`) | `granite4:3b` | Ollama chat model (CPU-friendly default) |
-| `ollama_base_url` (`OLLAMA_BASE_URL`) | `http://localhost:11434` | Ollama endpoint |
 | `data_dir` / `output_dir` | `data` / `output` | Storage locations |
 | `run_nmap_scripts`, `use_intel`, `banner_timeout` | `True/True/5.0` | Pipeline toggles |
 
 ## Docker
 
-CPU-only (default):
-
 ```bash
-docker compose up -d            # ollama (CPU) + model puller + vulnerable target
+docker compose up -d            # vulnerable target
 docker compose --profile scan run --rm beaglerecon --ingest --reset
 docker compose --profile scan run --rm beaglerecon vulnerable
 ```
 
-With NVIDIA GPU:
-
-```bash
-docker compose -f docker-compose.yml -f docker-compose.gpu.yml up -d
-docker compose --profile scan run --rm beaglerecon --ingest --reset
-docker compose --profile scan run --rm beaglerecon vulnerable
-```
-
-- `ollama` — local LLM server (models in the `ollama_models` volume)
-- `model-puller` — one-shot service pulling `OLLAMA_CHAT_MODEL`
 - `vulnerable` — [heywoodlh/vulnerable](https://hub.docker.com/r/heywoodlh/vulnerable) smoke-test target (SSH, ProFTPD, Apache, Samba, CUPS, MySQL, UnrealIRCd, ...)
 - `beaglerecon` — one-shot scanner (profile `scan`); reports in `./output`, data in `./data`
 
@@ -206,11 +215,9 @@ services/                  # per-service modules (the extension point for tools)
 intel/
   fts_index.py             # FtsIndex: SQLite FTS5 build + bm25 search
   fts_retriever.py         # FtsRetriever: retriever interface for the FTS index
-  intel_service.py         # IntelService: retrieval orchestration + LLM synthesis
-  query_planner.py         # QueryPlanner: LLM builds search queries, heuristic fallback
+  intel_service.py         # IntelService: retrieval orchestration + deterministic synthesis
+  query_planner.py         # QueryPlanner: builds FTS queries deterministically from scan data
   relevance_filter.py      # RelevanceFilter: keeps hits matching product/version tokens
-  cve_validator.py         # CveValidator: drops hallucinated CVE IDs
-  ollama_llm.py            # OllamaLlm: chat/JSON wrapper
   chunker.py               # TextChunker: splits long advisory texts
   chunk.py / retrieval_result.py / search_query.py / port_analysis.py   # data models
   sources/                 # data source adapters (the extension point for new data)
@@ -287,8 +294,6 @@ Add your step there and keep single-responsibility methods (one method = one sta
 ## Where things are tuned
 
 - Version matching strictness: `intel/relevance_filter.py`
-- LLM behaviour: `SYNTHESIS_SYSTEM_PROMPT` in `intel/intel_service.py`,
-  `QUERY_SYSTEM_PROMPT` in `intel/query_planner.py`
 - Report layout: `ReconPipeline._build_report()` in `core/pipeline.py`
 
 ## Testing

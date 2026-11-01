@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import click
+from pathlib import Path
 
 from config import Config
 from core.dns_resolver import DnsResolver
@@ -11,7 +12,6 @@ from core.version_scanner import VersionScanner
 from intel.fts_index import FtsIndex
 from intel.fts_retriever import FtsRetriever
 from intel.intel_service import IntelService
-from intel.ollama_llm import OllamaLlm
 from intel.query_planner import QueryPlanner
 from intel.sources.advisory_source import AdvisoryDatabaseSource
 from intel.sources.exploitdb_source import ExploitDbSource
@@ -46,10 +46,9 @@ def build_sources(config: Config) -> list:
 
 
 def build_intel_service(config: Config) -> IntelService:
-    llm = OllamaLlm(config)
-    planner = QueryPlanner(config, llm)
+    planner = QueryPlanner(config)
     index = FtsIndex(config)
-    return IntelService(config, llm, planner, FtsRetriever(index))
+    return IntelService(config, planner, FtsRetriever(index))
 
 
 def build_pipeline(config: Config) -> ReconPipeline:
@@ -70,7 +69,7 @@ def build_pipeline(config: Config) -> ReconPipeline:
              context_settings={"help_option_names": ["-h", "--help"]})
 @click.version_option(VERSION, prog_name="BeagleRecon")
 def cli():
-    """BeagleRecon - nmap scan, banner grabbing, CVE intelligence, LLM report."""
+    """BeagleRecon - nmap scan, banner grabbing, CVE intelligence, markdown report."""
     pass
 
 
@@ -80,11 +79,10 @@ def cli():
 @click.option("--all-ports", is_flag=True, help="scan all TCP ports (default)")
 @click.option("--udp/--no-udp", default=True, help="enable/disable the UDP scan")
 @click.option("--skip-scripts", is_flag=True, help="skip the nmap service scripts")
-@click.option("--no-intel", is_flag=True, help="skip the CVE search + LLM analysis")
-@click.option("--model", help="ollama chat model")
+@click.option("--no-intel", is_flag=True, help="skip the CVE search")
 @click.option("--data-dir", type=click.Path(file_okay=False), help="raw data directory")
 @click.option("--output-dir", type=click.Path(file_okay=False), help="report output directory")
-def scan(target, ports, all_ports, udp, skip_scripts, no_intel, model, data_dir, output_dir):
+def scan(target, ports, all_ports, udp, skip_scripts, no_intel, data_dir, output_dir):
     """Scan TARGET and write a vulnerability report to the output directory."""
     config = Config(target=target)
     if ports:
@@ -96,12 +94,10 @@ def scan(target, ports, all_ports, udp, skip_scripts, no_intel, model, data_dir,
         config.run_nmap_scripts = False
     if no_intel:
         config.use_intel = False
-    if model:
-        config.chat_model = model
     if data_dir:
-        config.data_dir = data_dir
+        config.data_dir = Path(data_dir)
     if output_dir:
-        config.output_dir = output_dir
+        config.output_dir = Path(output_dir)
 
     click.secho(BANNER, fg="cyan", bold=True)
     click.secho(f"Scanning {target} ...", fg="cyan")
@@ -123,7 +119,7 @@ def ingest(update_data, reset, limit, data_dir):
     if limit:
         config.source_limit = limit
     if data_dir:
-        config.data_dir = data_dir
+        config.data_dir = Path(data_dir)
 
     index = FtsIndex(config)
     if reset and index.exists():
@@ -146,16 +142,16 @@ def ingest(update_data, reset, limit, data_dir):
 @click.option("--vhost-wordlist", type=click.Path(exists=True), default=None, help="vhost wordlist")
 @click.option("--threads", type=int, default=50, help="ferox/ffuf threads")
 def web(domain, ip, ports, wordlist, api_wordlist, vhost_wordlist, threads):
-    """Stage 2 (manual): run feroxbuster + ffuf agents against DOMAIN.
+    """Stage 2 (manual): run feroxbuster + ffuf against DOMAIN.
 
     Set the domain in /etc/hosts first - CTFs have no DNS server."""
-    from AG2.agents.web_team import WebReconTeam
+    from Fuzzing.Scanner.web_recon import WebReconRunner
 
     config = Config()
     if ports:
         port_list = [int(p.strip()) for p in ports.split(",")]
     else:
-        port_list = WebReconTeam(config).discover_http_ports(ip)
+        port_list = WebReconRunner(config).discover_http_ports(ip)
         if not port_list:
             raise click.ClickException(
                 "no HTTP ports found in scan reports - pass --ports 80,443"
@@ -167,7 +163,7 @@ def web(domain, ip, ports, wordlist, api_wordlist, vhost_wordlist, threads):
     }
     click.secho(f"Web recon: {domain} ({ip}) ports {port_list}", fg="cyan")
     try:
-        report = WebReconTeam(config).run(domain, ip, port_list, wordlists)
+        report = WebReconRunner(config).run(domain, ip, port_list, wordlists)
     except Exception as exc:
         raise click.ClickException(f"web recon failed: {exc}") from exc
     click.secho(f"Report: {report}", fg="green", bold=True)

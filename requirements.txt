@@ -1,7 +1,5 @@
 click>=8.0
-ollama>=0.4
 python-nmap>=0.7
 python-dotenv>=1.0
 requests>=2.31
 rich>=13.7
-ag2>=0.13.4
